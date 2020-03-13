@@ -398,7 +398,10 @@ test_hostname_gateway_response_should_contain \
   "http://127.0.0.1:$GWAY_PORT/api/v0/refs?arg=${DIR_CID}&r=true" \
   "Ref"
 
-# <dnslink-fqdn>.ipns.example.com
+# DNSLink: <dnslink-fqdn>.ipns.example.com
+# (not really useful outside of localhost, as setting TLS for more than one
+# level of wildcard is a pain, but we support it if someone really wants it)
+# ============================================================================
 
 # DNSLink test requires a daemon in online mode with precached /ipns/ mapping
 test_kill_ipfs_daemon

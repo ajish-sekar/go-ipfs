@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	cid "github.com/ipfs/go-cid"
@@ -37,10 +36,6 @@ var defaultKnownGateways = map[string]config.GatewaySpec{
 	"dweb.link":       subdomainGatewaySpec,
 }
 
-// Find content identifier, protocol, and remaining hostname (host+optional port)
-// of a subdomain gateway (eg. *.ipfs.foo.bar.co.uk)
-var subdomainGatewayRegex = regexp.MustCompile(`^(.+)\.(ipfs|ipns|ipld|p2p)\.([^/?#&]+)$`)
-
 // HostnameOption rewrites an incoming request based on the Host header.
 func HostnameOption() ServeOption {
 	return func(n *core.IpfsNode, _ net.Listener, mux *http.ServeMux) (*http.ServeMux, error) {
@@ -67,17 +62,6 @@ func HostnameOption() ServeOption {
 			}
 		}
 
-		// Return matching GatewaySpec with gracefull fallback to version without port
-		isKnownGateway := func(hostname string) (gw config.GatewaySpec, ok bool) {
-			// Try hostname (host+optional port - value from Host header as-is)
-			if gw, ok := knownGateways[hostname]; ok {
-				return gw, ok
-			}
-			// Fallback to hostname without port
-			gw, ok = knownGateways[stripPort(hostname)]
-			return gw, ok
-		}
-
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			// Unfortunately, many (well, ipfs.io) gateways use
 			// DNSLink so if we blindly rewrite with DNSLink, we'll
@@ -88,7 +72,7 @@ func HostnameOption() ServeOption {
 			// That way, we can use DNSLink for everything else.
 
 			// HTTP Host & Path check: is this one of our  "known gateways"?
-			if gw, ok := isKnownGateway(r.Host); ok {
+			if gw, ok := isKnownHostname(r.Host, knownGateways); ok {
 				// This is a known gateway but request is not using
 				// the subdomain feature.
 
@@ -144,41 +128,36 @@ func HostnameOption() ServeOption {
 
 			// HTTP Host check: is this one of our subdomain-based "known gateways"?
 			// Example: {cid}.ipfs.localhost, {cid}.ipfs.dweb.link
-			if hostname, ns, rootID, ok := parseSubdomains(r.Host); ok {
-				// Looks like we're using subdomains.
+			if gw, hostname, ns, rootID, ok := knownSubdomainDetails(r.Host, knownGateways); ok {
+				// Looks like we're using known subdomain gateway.
 
-				// Again, is this a known gateway that supports subdomains?
-				if gw, ok := isKnownGateway(hostname); ok {
+				// Assemble original path prefix.
+				pathPrefix := "/" + ns + "/" + rootID
 
-					// Assemble original path prefix.
-					pathPrefix := "/" + ns + "/" + rootID
-
-					// Does this gateway _handle_ this path?
-					if gw.UseSubdomains && hasPrefix(pathPrefix, gw.Paths...) {
-
-						// Do we need to fix multicodec in /ipns/{cid}?
-						if ns == "ipns" {
-							keyCid, err := cid.Decode(rootID)
-							if err == nil && keyCid.Type() != cid.Libp2pKey {
-
-								if newURL, ok := toSubdomainURL(hostname, pathPrefix+r.URL.Path, r); ok {
-									// Redirect to CID fixed inside of toSubdomainURL()
-									http.Redirect(w, r, newURL, http.StatusMovedPermanently)
-									return
-								}
-							}
-						}
-
-						// Rewrite the path to not use subdomains
-						r.URL.Path = pathPrefix + r.URL.Path
-						// Serve path request
-						childMux.ServeHTTP(w, r)
-						return
-					}
-					// If not, resource does not exist on the subdomain gateway, return 404
+				// Does this gateway _handle_ this path?
+				if !(gw.UseSubdomains && hasPrefix(pathPrefix, gw.Paths...)) {
+					// If not, resource does not exist, return 404
 					http.NotFound(w, r)
 					return
 				}
+
+				// Do we need to fix multicodec in PeerID represented as CIDv1?
+				if isPeerIDNamespace(ns) {
+					keyCid, err := cid.Decode(rootID)
+					if err == nil && keyCid.Type() != cid.Libp2pKey {
+						if newURL, ok := toSubdomainURL(hostname, pathPrefix+r.URL.Path, r); ok {
+							// Redirect to CID fixed inside of toSubdomainURL()
+							http.Redirect(w, r, newURL, http.StatusMovedPermanently)
+							return
+						}
+					}
+				}
+
+				// Rewrite the path to not use subdomains
+				r.URL.Path = pathPrefix + r.URL.Path
+				// Serve path request
+				childMux.ServeHTTP(w, r)
+				return
 			}
 			// We don't have a known gateway. Fallback on DNSLink lookup
 
@@ -198,6 +177,45 @@ func HostnameOption() ServeOption {
 		})
 		return childMux, nil
 	}
+}
+
+// isKnownHostname checks Gateway.PublicGateways and returns matching
+// GatewaySpec with gracefull fallback to version without port
+func isKnownHostname(hostname string, knownGateways map[string]config.GatewaySpec) (gw config.GatewaySpec, ok bool) {
+	// Try hostname (host+optional port - value from Host header as-is)
+	if gw, ok := knownGateways[hostname]; ok {
+		return gw, ok
+	}
+	// Fallback to hostname without port
+	gw, ok = knownGateways[stripPort(hostname)]
+	return gw, ok
+}
+
+// Parses Host header and looks for a known subdomain gateway host.
+// If found, returns GatewaySpec and subdomain components.
+// Note: hostname is host + optional port
+func knownSubdomainDetails(hostname string, knownGateways map[string]config.GatewaySpec) (gw config.GatewaySpec, knownHostname, ns, rootID string, ok bool) {
+	labels := strings.Split(hostname, ".")
+	// Look for FQDN of a known gateway hostname.
+	// Example: given "dist.ipfs.io.ipns.dweb.link":
+	// 1. Lookup "link" TLD in knownGateways: negative
+	// 2. Lookup "dweb.link" in knownGateways: positive
+	for i := range labels {
+		start := len(labels) - 1 - i
+		fqdn := strings.Join(labels[start:], ".")
+		gw, ok := isKnownHostname(fqdn, knownGateways)
+		// Are there at least two labels left? (ns, rootID)
+		if ok && start > 1 {
+			ns := labels[start-1]
+			if isSubdomainNamespace(ns) {
+				// Merge remaining labels (could be a FQDN with DNSLink)
+				rootID := strings.Join(labels[:start-1], ".")
+				return gw, fqdn, ns, rootID, true
+			}
+		}
+	}
+	// not a known subdomain gateway
+	return gw, "", "", "", false
 }
 
 // isDNSLinkRequest returns bool that indicates if request
@@ -229,16 +247,6 @@ func isPeerIDNamespace(ns string) bool {
 	default:
 		return false
 	}
-}
-
-// Parses Host header of a subdomain-based URL and returns it's components
-// Note: hostname is host + optional port
-func parseSubdomains(hostHeader string) (hostname, ns, rootID string, ok bool) {
-	parts := subdomainGatewayRegex.FindStringSubmatch(hostHeader)
-	if len(parts) < 4 || !isSubdomainNamespace(parts[2]) {
-		return "", "", "", false
-	}
-	return parts[3], parts[2], parts[1], true
 }
 
 // Converts a hostname/path to a subdomain-based URL, if applicable.

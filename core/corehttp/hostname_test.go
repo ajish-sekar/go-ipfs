@@ -2,6 +2,8 @@ package corehttp
 
 import (
 	"testing"
+
+	config "github.com/ipfs/go-ipfs-config"
 )
 
 func TestHasPrefix(t *testing.T) {
@@ -31,7 +33,7 @@ func TestPortStripping(t *testing.T) {
 		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.localhost:8080", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.localhost"},
 		{"example.com:443", "example.com"},
 		{"example.com", "example.com"},
-		{"foo-dweb.pvt.k12.ma.us:8080", "foo-dweb.pvt.k12.ma.us"},
+		{"foo-dweb.ipfs.pvt.k12.ma.us:8080", "foo-dweb.ipfs.pvt.k12.ma.us"},
 		{"localhost", "localhost"},
 		{"[::1]:8080", "::1"},
 	} {
@@ -43,7 +45,16 @@ func TestPortStripping(t *testing.T) {
 
 }
 
-func TestParseSubdomains(t *testing.T) {
+func TestKnownSubdomainDetails(t *testing.T) {
+	gwSpec := config.GatewaySpec{
+		UseSubdomains: true,
+	}
+	knownGateways := map[string]config.GatewaySpec{
+		"localhost":               gwSpec,
+		"dweb.link":               gwSpec,
+		"dweb.ipfs.pvt.k12.ma.us": gwSpec, // note the sneaky ".ipfs." ;-)
+	}
+
 	for _, test := range []struct {
 		// in:
 		hostHeader string
@@ -58,7 +69,15 @@ func TestParseSubdomains(t *testing.T) {
 		{"[::1]:8080", "", "", "", false},
 		{"hey.look.example.com", "", "", "", false},
 		{"dweb.link", "", "", "", false},
-		// cid in subdomain
+		// malformed Host header
+		{".....dweb.link", "", "", "", false},
+		{"link", "", "", "", false},
+		{"8080:dweb.link", "", "", "", false},
+		{" ", "", "", "", false},
+		{"", "", "", "", false},
+		// unknown gateway host
+		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.unknown.example.com", "", "", "", false},
+		// cid in subdomain, known gateway
 		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.localhost:8080", "localhost:8080", "ipfs", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am", true},
 		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.dweb.link", "dweb.link", "ipfs", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am", true},
 		// capture everything before .ipfs.
@@ -67,33 +86,36 @@ func TestParseSubdomains(t *testing.T) {
 		{"bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju.ipns.localhost:8080", "localhost:8080", "ipns", "bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju", true},
 		{"bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju.ipns.dweb.link", "dweb.link", "ipns", "bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju", true},
 		// edge case check: public gateway under long TLD (see: https://publicsuffix.org)
-		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.dweb.pvt.k12.ma.us", "dweb.pvt.k12.ma.us", "ipfs", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am", true},
-		{"bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju.ipns.dweb.lpvt.k12.ma.us", "dweb.lpvt.k12.ma.us", "ipns", "bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju", true},
+		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.dweb.ipfs.pvt.k12.ma.us", "dweb.ipfs.pvt.k12.ma.us", "ipfs", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am", true},
+		{"bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju.ipns.dweb.ipfs.pvt.k12.ma.us", "dweb.ipfs.pvt.k12.ma.us", "ipns", "bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju", true},
 		// dnslink in subdomain
 		{"en.wikipedia-on-ipfs.org.ipns.localhost:8080", "localhost:8080", "ipns", "en.wikipedia-on-ipfs.org", true},
 		{"en.wikipedia-on-ipfs.org.ipns.localhost", "localhost", "ipns", "en.wikipedia-on-ipfs.org", true},
 		{"dist.ipfs.io.ipns.localhost:8080", "localhost:8080", "ipns", "dist.ipfs.io", true},
 		{"en.wikipedia-on-ipfs.org.ipns.dweb.link", "dweb.link", "ipns", "en.wikipedia-on-ipfs.org", true},
 		// edge case check: public gateway under long TLD (see: https://publicsuffix.org)
-		{"foo.dweb.pvt.k12.ma.us", "", "", "", false},
-		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.dweb.pvt.k12.ma.us", "dweb.pvt.k12.ma.us", "ipfs", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am", true},
-		{"bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju.ipns.dweb.lpvt.k12.ma.us", "dweb.lpvt.k12.ma.us", "ipns", "bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju", true},
+		{"foo.dweb.ipfs.pvt.k12.ma.us", "", "", "", false},
+		{"bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am.ipfs.dweb.ipfs.pvt.k12.ma.us", "dweb.ipfs.pvt.k12.ma.us", "ipfs", "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am", true},
+		{"bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju.ipns.dweb.ipfs.pvt.k12.ma.us", "dweb.ipfs.pvt.k12.ma.us", "ipns", "bafzbeihe35nmjqar22thmxsnlsgxppd66pseq6tscs4mo25y55juhh6bju", true},
 		// other namespaces
 		{"api.localhost", "", "", "", false},
 		{"peerid.p2p.localhost", "localhost", "p2p", "peerid", true},
 	} {
-		hostname, ns, rootID, ok := parseSubdomains(test.hostHeader)
+		gw, hostname, ns, rootID, ok := knownSubdomainDetails(test.hostHeader, knownGateways)
 		if ok != test.ok {
-			t.Fatalf("parseSubdomains(%s): ok is %t, expected %t", test.hostHeader, ok, test.ok)
+			t.Errorf("knownSubdomainDetails(%s): ok is %t, expected %t", test.hostHeader, ok, test.ok)
 		}
 		if rootID != test.rootID {
-			t.Errorf("parseSubdomains(%s): rootID is '%s', expected '%s'", test.hostHeader, rootID, test.rootID)
+			t.Errorf("knownSubdomainDetails(%s): rootID is '%s', expected '%s'", test.hostHeader, rootID, test.rootID)
 		}
 		if ns != test.ns {
-			t.Errorf("parseSubdomains(%s): ns is '%s', expected '%s'", test.hostHeader, ns, test.ns)
+			t.Errorf("knownSubdomainDetails(%s): ns is '%s', expected '%s'", test.hostHeader, ns, test.ns)
 		}
 		if hostname != test.hostname {
-			t.Errorf("parseSubdomains(%s): hostname is '%s', expected '%s'", test.hostHeader, hostname, test.hostname)
+			t.Errorf("knownSubdomainDetails(%s): hostname is '%s', expected '%s'", test.hostHeader, hostname, test.hostname)
+		}
+		if ok && gw.UseSubdomains != gwSpec.UseSubdomains {
+			t.Errorf("knownSubdomainDetails(%s): gw is  %+v, expected %+v", test.hostHeader, gw, gwSpec)
 		}
 	}
 
