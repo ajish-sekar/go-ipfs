@@ -99,6 +99,7 @@ require (
 	github.com/whyrusleeping/go-sysinfo v0.0.0-20190219211824-4a357d4b90b1
 	github.com/whyrusleeping/multiaddr-filter v0.0.0-20160516205228-e903e4adabd7
 	github.com/whyrusleeping/tar-utils v0.0.0-20180509141711-8c6c8ba81d5c
+	github.com/wzulfikar/ipfs-middleware v0.0.0-20181105113420-ad1608ed4939
 	go.uber.org/fx v1.10.0
 	golang.org/x/crypto v0.0.0-20200311171314-f7b00557c8c4
 	golang.org/x/sys v0.0.0-20200302150141-5c8b2ff67527

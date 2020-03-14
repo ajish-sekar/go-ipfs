@@ -25,6 +25,7 @@ import (
 	ipath "github.com/ipfs/interface-go-ipfs-core/path"
 	routing "github.com/libp2p/go-libp2p-core/routing"
 	"github.com/multiformats/go-multibase"
+	middleware "github.com/ipfs/go-ipfs/core/middleware"
 )
 
 const (
@@ -80,6 +81,12 @@ func (i *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			debug.PrintStack()
 		}
 	}()
+
+	// pass gateway request to middleware
+	if ok := middleware.Handler(w, r); !ok {
+		return
+	}
+	
 
 	if i.config.Writable {
 		switch r.Method {
