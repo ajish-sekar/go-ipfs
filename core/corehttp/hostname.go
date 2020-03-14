@@ -10,6 +10,7 @@ import (
 	cid "github.com/ipfs/go-cid"
 	core "github.com/ipfs/go-ipfs/core"
 	namesys "github.com/ipfs/go-ipfs/namesys"
+	"github.com/libp2p/go-libp2p-core/peer"
 	mbase "github.com/multiformats/go-multibase"
 
 	config "github.com/ipfs/go-ipfs-config"
@@ -292,6 +293,17 @@ func toSubdomainURL(hostname, path string, r *http.Request) (redirURL string, ok
 		query = "?" + query
 	}
 
+	// Normalize problematic PeerIDs (eg. ed25519+identity) to CID representation
+	if isPeerIDNamespace(ns) && !isd.IsDomain(rootID) {
+		peerID, err := peer.Decode(rootID)
+		// Note: PeerID CIDv1 with protobuf multicodec will fail, but we fix it
+		// in the next block
+		if err == nil {
+			rootID = peer.ToCid(peerID).String()
+		}
+	}
+
+	// If rootID is a CID, ensure it uses DNS-friendly text representation
 	if rootCid, err := cid.Decode(rootID); err == nil {
 		multicodec := rootCid.Type()
 

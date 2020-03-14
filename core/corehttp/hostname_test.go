@@ -1,10 +1,40 @@
 package corehttp
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	config "github.com/ipfs/go-ipfs-config"
 )
+
+func TestToSubdomainURL(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://request-stub.example.com", nil)
+	for _, test := range []struct {
+		// in:
+		hostname string
+		path     string
+		// out:
+		url string
+		ok  bool
+	}{
+		// DNSLink
+		{"localhost", "/ipns/dnslink.io", "http://dnslink.io.ipns.localhost/", true},
+		// Hostname with port
+		{"localhost:8080", "/ipns/dnslink.io", "http://dnslink.io.ipns.localhost:8080/", true},
+		// CIDv0 → CIDv1base32
+		{"localhost", "/ipfs/QmbCMUZw6JFeZ7Wp9jkzbye3Fzp2GGcPgC3nmeUjfVF87n", "http://bafybeif7a7gdklt6hodwdrmwmxnhksctcuav6lfxlcyfz4khzl3qfmvcgu.ipfs.localhost/", true},
+		// PeerID as CIDv1 needs to have libp2p-key multicodec
+		{"localhost", "/ipns/QmY3hE8xgFCjGcz6PHgnvJz5HZi1BaKRfPkn1ghZUcYMjD", "http://bafzbeieqhtl2l3mrszjnhv6hf2iloiitsx7mexiolcnywnbcrzkqxwslja.ipns.localhost/", true},
+		{"localhost", "/ipns/bafybeickencdqw37dpz3ha36ewrh4undfjt2do52chtcky4rxkj447qhdm", "http://bafzbeickencdqw37dpz3ha36ewrh4undfjt2do52chtcky4rxkj447qhdm.ipns.localhost/", true},
+		// PeerID: ed25519+identity multihash
+		{"localhost", "/ipns/12D3KooWFB51PRY9BxcXSH6khFXw1BZeszeLDy7C8GciskqCTZn5", "http://bafzaajaiaejcat4yhiwnr2qz73mtu6vrnj2krxlpfoa3wo2pllfi37quorgwh2jw.ipns.localhost/", true},
+	} {
+		url, ok := toSubdomainURL(test.hostname, test.path, r)
+		if ok != test.ok || url != test.url {
+			t.Errorf("(%s, %s) returned (%s, %t), expected (%s, %t)", test.hostname, test.path, url, ok, test.url, ok)
+		}
+	}
+}
 
 func TestHasPrefix(t *testing.T) {
 	for _, test := range []struct {
