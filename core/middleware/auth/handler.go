@@ -14,7 +14,7 @@ func Handler() *authMiddleware {
 
 func unauthorized(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusUnauthorized)
-	fmt.Fprintf(w, "unauthorized")
+	fmt.Fprintf(w, "Unauthorized User\n")
 }
 
 func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
