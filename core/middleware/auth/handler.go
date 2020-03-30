@@ -18,6 +18,11 @@ func unauthorized(w http.ResponseWriter) {
 }
 
 func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
+
+	if(r.Method != http.MethodGet){
+		return true
+	}
+
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		unauthorized(w)
