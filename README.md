@@ -502,6 +502,20 @@ If you make changes to the protocol buffers, you will need to install the [proto
 
 Find more documentation for developers on [docs](./docs)
 
+Install the dependencies
+
+```
+go get -u github.com/ethereum/go-ethereum
+cd $GOPATH/src/github.com/ethereum/go-ethereum/
+make
+make devtools
+```
+
+Use the following command to build the ipfs system
+```
+go build ./cmd/ipfs
+```
+
 ## Contributing
 
 [![](https://cdn.rawgit.com/jbenet/contribute-ipfs-gif/master/img/contribute.gif)](https://github.com/ipfs/community/blob/master/CONTRIBUTING.md)
