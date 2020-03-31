@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"strings"
 	"reflect"
+	"bytes"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	contracts "github.com/ipfs/go-ipfs/contracts"
 )
@@ -39,7 +42,9 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 	authValues := strings.Split(authHeader,",")
 	fmt.Println("Split:",authValues)
 	fileAddressString := ""
-	userKeyString := ""
+	userAddressString := ""
+	msgHash := ""
+	signature := ""
 
 	for _, element := range authValues {
 		tokens := strings.Split(element," ")
@@ -47,9 +52,67 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 		if(tokens[0] == "SCCF"){
 			fileAddressString = tokens[1]
 		}else if(tokens[0] == "SCCU"){
-			userKeyString = tokens[1]
+			userAddressString = tokens[1]
+		}else if(tokens[0] == "SCCH"){
+			msgHash = tokens[1]
+		}else if(tokens[0] == "SCCS"){
+			signature = tokens[1]
 		}
 	}
+
+	if(fileAddressString == "" || userAddressString == "" || msgHash == "" || signature == ""){
+		fmt.Println("Missing credentials")
+		unauthorized(w)
+		return false
+	}
+
+	fileAddress := common.HexToAddress(fileAddressString)
+	userAddress := common.HexToAddress(userAddressString)
+
+
+	hashBytes, err := hexutil.Decode(msgHash)
+
+	if err != nil {
+		fmt.Println("Cannot decode hash ",err)
+		unauthorized(w)
+		return false
+	}
+
+	sigBytes, err := hexutil.Decode(signature)
+
+	if err != nil {
+		fmt.Println("Cannot decode signature ",err)
+		unauthorized(w)
+		return false
+	}
+
+	sigPublicKeyECDSA, err := crypto.SigToPub(hashBytes, sigBytes)
+
+	if err != nil {
+		fmt.Println("Cannot recover key ",err)
+		unauthorized(w)
+		return false
+	}
+
+	sigAddress := crypto.PubkeyToAddress(*sigPublicKeyECDSA)
+
+	fmt.Println("SigAddress",sigAddress.Hex())
+	fmt.Println("EthAddress",userAddress.Hex())
+
+	sigAddressBytes := sigAddress.Bytes()
+	userAddressBytes := userAddress.Bytes();
+
+
+	matches := bytes.Equal(sigAddressBytes,userAddressBytes)
+
+	if !matches {
+		fmt.Println("Invalid Signature")
+		unauthorized(w)
+		return false
+	}
+
+
+
 
 	client,err := ethclient.Dial("http://localhost:7545")
 
@@ -58,9 +121,6 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 		unauthorized(w)
 		return false
 	}
-
-	fileAddress := common.HexToAddress(fileAddressString)
-	userAddress := common.HexToAddress(userKeyString)
 
 	instance, err := contracts.NewFile(fileAddress,client)
 
