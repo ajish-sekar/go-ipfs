@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"reflect"
 	"bytes"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -37,7 +36,17 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	fmt.Printf("Type: %s\n",reflect.TypeOf(authHeader))
+
+	urlPaths := strings.Split(r.URL.Path,"/")
+
+	pathLen := len(urlPaths)
+
+	if urlPaths[pathLen-2] != "ipfs"{
+		return true
+	}
+
+	fileHash := urlPaths[pathLen-1]	
+
 	fmt.Printf("Auth: %s\n",authHeader)
 	authValues := strings.Split(authHeader,",")
 	fmt.Println("Split:",authValues)
@@ -126,6 +135,20 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err!=nil {
 		fmt.Println("Unable to load file contract ",err)
+		unauthorized(w)
+		return false
+	}
+
+	isHashMatch, err := instance.IsFileHash(nil,fileHash)
+
+	if err!=nil {
+		fmt.Println("Unable to access contract ",err)
+		unauthorized(w)
+		return false
+	}
+
+	if !isHashMatch{
+		fmt.Println("File hash does not match")
 		unauthorized(w)
 		return false
 	}
