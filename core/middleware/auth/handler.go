@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"bytes"
+	"strconv"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -75,9 +76,11 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	fileAddress := common.HexToAddress(fileAddressString)
-	userAddress := common.HexToAddress(userAddressString)
+	messageLength := len(fileAddressString) + len(userAddressString) + 1
 
+	data := []byte("\x19Ethereum Signed Message:\n" + strconv.Itoa(messageLength) + fileAddressString + "/" + userAddressString)
+
+	hash := crypto.Keccak256Hash(data)
 
 	hashBytes, err := hexutil.Decode(msgHash)
 
@@ -86,6 +89,20 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 		unauthorized(w)
 		return false
 	}
+
+	hashMatches := bytes.Equal(hashBytes,hash.Bytes())
+
+	if !hashMatches {
+		fmt.Println("Invalid Hash")
+		unauthorized(w)
+		return false
+	}
+
+	fileAddress := common.HexToAddress(fileAddressString)
+	userAddress := common.HexToAddress(userAddressString)
+
+
+	
 
 	sigBytes, err := hexutil.Decode(signature)
 
