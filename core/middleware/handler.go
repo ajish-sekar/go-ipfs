@@ -15,17 +15,10 @@ var middlewares = []contracts.Middleware{
 	auth.Handler(),
 }
 
-// put this method inside
-// github.com/ipfs/go-ipfs/core/corehttp/gateway_handler.go:95-97
-//
-// ```
-// if ok := middleware.Handle(w, r); !ok {
-//   return
-// }
-// ```
-func Handler(w http.ResponseWriter, r *http.Request) bool {
+
+func Handler(w http.ResponseWriter, r *http.Request, headers map[string][]string) bool {
 	for i := 0; i < len(middlewares); i++ {
-		if ok := middlewares[i].Handle(w, r); !ok {
+		if ok := middlewares[i].Handle(w, r, headers); !ok {
 			return false
 		}
 	}

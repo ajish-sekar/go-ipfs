@@ -6,6 +6,8 @@ import (
 	"strings"
 	"bytes"
 	"strconv"
+	"crypto/rand"
+	"encoding/base64"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -15,25 +17,74 @@ import (
 
 type authMiddleware struct{}
 
+var randVals  = make(map[string]string)
+
 func Handler() *authMiddleware {
 	return &authMiddleware{}
 }
 
-func unauthorized(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusUnauthorized)
+func unauthorized(w http.ResponseWriter, headers map[string][]string) {
+	for k, v := range headers {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(http.StatusForbidden)
 	fmt.Fprintf(w, "Unauthorized User\n")
 }
 
-func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
+func sendRandString(w http.ResponseWriter, s string, headers map[string][]string) {
+	for k, v := range headers {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(http.StatusUnauthorized)
+	fmt.Fprintf(w,s)
+}
+
+
+func GenerateRandomBytes(n int) ([]byte, error) {
+    b := make([]byte, n)
+    _, err := rand.Read(b)
+    // Note that err == nil only if we read len(b) bytes.
+    if err != nil {
+        return nil, err
+    }
+
+    return b, nil
+}
+
+func GenerateRandomString(s int) (string, error) {
+    b, err := GenerateRandomBytes(s)
+    return base64.URLEncoding.EncodeToString(b), err
+}
+
+
+func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request, headers map[string][]string) bool {
 
 	if(r.Method != http.MethodGet){
 		return true
 	}
 
+	host := r.Host
+
+	randString, ok := randVals[host]
+
+	if !ok {
+		randVal,err := GenerateRandomString(32)
+
+		if err!= nil {
+			fmt.Println("Random Generator Failed")
+			unauthorized(w,headers)
+			return false
+		}
+		randVals[host] = randVal
+		sendRandString(w,randVal,headers)
+		return false
+	}
+
 	authHeader := r.Header.Get("Authorization")
 
 	if authHeader == "" {
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -72,13 +123,15 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if(fileAddressString == "" || userAddressString == "" || msgHash == "" || signature == ""){
 		fmt.Println("Missing credentials")
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
-	messageLength := len(fileAddressString) + len(userAddressString) + 1
+	// 2 for the 2 /
+	messageLength := len(fileAddressString) + len(userAddressString) + len(randString) + 2
 
-	data := []byte("\x19Ethereum Signed Message:\n" + strconv.Itoa(messageLength) + fileAddressString + "/" + userAddressString)
+	data := []byte("\x19Ethereum Signed Message:\n" + strconv.Itoa(messageLength) + fileAddressString + "/" + userAddressString + "/" + randString)
 
 	hash := crypto.Keccak256Hash(data)
 
@@ -86,7 +139,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err != nil {
 		fmt.Println("Cannot decode hash ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -94,7 +148,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if !hashMatches {
 		fmt.Println("Invalid Hash")
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -108,7 +163,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err != nil {
 		fmt.Println("Cannot decode signature ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -116,7 +172,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err != nil {
 		fmt.Println("Cannot recover key ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -133,7 +190,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if !matches {
 		fmt.Println("Invalid Signature")
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -144,7 +202,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err != nil {
 		fmt.Println("Unable to connect to client ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -152,7 +211,8 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err!=nil {
 		fmt.Println("Unable to load file contract ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -160,13 +220,15 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err!=nil {
 		fmt.Println("Unable to access contract ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
 	if !isHashMatch{
 		fmt.Println("File hash does not match")
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -174,12 +236,14 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 
 	if err!=nil {
 		fmt.Println("Unable to access contract ",err)
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
 	if !allow{
-		unauthorized(w)
+		delete(randVals,host)
+		unauthorized(w,headers)
 		return false
 	}
 
@@ -198,5 +262,6 @@ func (_ *authMiddleware) Handle(w http.ResponseWriter, r *http.Request) bool {
 	// would be "Bearer", or "JWT".
 	// authType, token := authToken[0], authToken[1]
 
+	delete(randVals,host)
 	return true
 }

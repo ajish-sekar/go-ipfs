@@ -83,7 +83,7 @@ func (i *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// pass gateway request to middleware
-	if ok := middleware.Handler(w, r); !ok {
+	if ok := middleware.Handler(w, r, i.config.Headers); !ok {
 		return
 	}
 	
